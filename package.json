@@ -1,0 +1,22 @@
+{
+  "name": "casino-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "オンラインカジノ風Webアプリ（WebSocketによるリアルタイム通信／ローカル実行）",
+  "scripts": {
+    "dev": "concurrently -n GAME,WEB -c green,cyan \"node server/game-server.js\" \"next dev -p 3000\"",
+    "game": "node server/game-server.js",
+    "web": "next dev -p 3000",
+    "build": "next build",
+    "start": "concurrently -n GAME,WEB -c green,cyan \"node server/game-server.js\" \"next start -p 3000\""
+  },
+  "dependencies": {
+    "next": "~14.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "ws": "8.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "8.2.2"
+  }
+}
