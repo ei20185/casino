@@ -8,7 +8,8 @@
     "game": "node server/game-server.js",
     "web": "next dev -p 3000",
     "build": "next build",
-    "start": "concurrently -n GAME,WEB -c green,cyan \"node server/game-server.js\" \"next start -p 3000\""
+    "start": "concurrently -n GAME,WEB -c green,cyan \"node server/game-server.js\" \"next start -p 3000\"",
+    "test": "node --test"
   },
   "dependencies": {
     "next": "~14.2",
@@ -18,5 +19,8 @@
   },
   "devDependencies": {
     "concurrently": "8.2.2"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

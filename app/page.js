@@ -22,6 +22,9 @@ function Card({ c, sm }) {
 export default function Page() {
   const [me, setMe] = useState(null);            // {id,name,chips}
   const [nameInput, setNameInput] = useState("");
+  const [passInput, setPassInput] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [stats, setStats] = useState(null);      // {stats, recent}
   const [view, setView] = useState("lobby");     // lobby | blackjack | poker
   const [connected, setConnected] = useState(false);
   const [lostConnection, setLostConnection] = useState(false);
@@ -43,16 +46,25 @@ export default function Page() {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
   }, []);
 
-  // 入室（WebSocket接続）
-  const join = useCallback(() => {
-    const name = nameInput.trim() || "ゲスト";
+  // ログイン／新規登録（WebSocket接続 → 名前とパスワードを送る）
+  const auth = useCallback((mode) => {
+    const name = nameInput.trim();
+    if (!name || !passInput) { setAuthError("名前とパスワードを入力してください。"); return; }
+    setAuthError("");
+    const payload = { type: mode, name, password: passInput };
+
+    // すでにつながっていれば、そのまま送る（パスワード間違いのやり直しなど）
+    const cur = wsRef.current;
+    if (cur && cur.readyState === WebSocket.OPEN) { cur.send(JSON.stringify(payload)); return; }
+
     const url = `ws://${window.location.hostname}:3001`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
       setConnected(true);
-      ws.send(JSON.stringify({ type: "join", name }));
+      setLostConnection(false);
+      ws.send(JSON.stringify(payload));
     };
     ws.onclose = () => { setConnected(false); setLostConnection(true); };
     ws.onerror = () => { setLostConnection(true); };
@@ -60,7 +72,9 @@ export default function Page() {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       switch (msg.type) {
-        case "welcome": setMe(msg.you); break;
+        case "welcome": setMe(msg.you); setPassInput(""); break;
+        case "auth_error": setAuthError(msg.message); break;
+        case "stats": setStats(msg); break;
         case "chips": setMe((m) => (m ? { ...m, chips: msg.chips } : m)); break;
         case "players": setPlayers(msg.list); break;
         case "rankings": setRankings(msg.list); break;
@@ -71,7 +85,7 @@ export default function Page() {
         default: break;
       }
     };
-  }, [nameInput]);
+  }, [nameInput, passInput]);
 
   useEffect(() => {
     if (chatLogRef.current) chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
@@ -100,11 +114,28 @@ export default function Page() {
           <input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && join()}
-            placeholder="ニックネームを入力"
+            placeholder="名前（1〜16文字）"
             maxLength={16}
+            autoComplete="username"
           />
-          <button className="btn-gold" onClick={join}>入室する</button>
+          <input
+            type="password"
+            value={passInput}
+            onChange={(e) => setPassInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && auth("login")}
+            placeholder="パスワード（4文字以上）"
+            maxLength={64}
+            autoComplete="current-password"
+          />
+          {authError && <p className="auth-error">{authError}</p>}
+          {lostConnection && !connected && <p className="auth-error">サーバーにつながりません。起動しているか確認してください。</p>}
+          <div className="auth-buttons">
+            <button className="btn-gold" onClick={() => auth("login")}>ログイン</button>
+            <button className="btn-ghost" onClick={() => auth("register")}>はじめて登録する</button>
+          </div>
+          <p className="muted" style={{ fontSize: 12 }}>
+            チップ・戦績はサーバーに保存され、次にログインしたときも続きから遊べます。
+          </p>
           <div className="comm-badges">
             <span>チャット = 1:n ブロードキャスト</span>
             <span>ポーカー = n:m リアルタイム</span>
@@ -141,7 +172,7 @@ export default function Page() {
 
       <div className="main">
         <div className="stage">
-          {view === "lobby" && <Lobby players={players} setView={setView} />}
+          {view === "lobby" && <Lobby players={players} setView={setView} stats={stats} />}
           {view === "blackjack" && (
             <Blackjack bj={bj} bet={bet} setBet={setBet} chips={me.chips} sendMsg={sendMsg} />
           )}
@@ -185,7 +216,47 @@ export default function Page() {
 }
 
 // ============ ロビー ============
-function Lobby({ players, setView }) {
+const GAME_LABEL = { blackjack: "ブラックジャック", poker: "ポーカー" };
+const RESULT_LABEL = { win: "勝ち", blackjack: "BJ勝ち", lose: "負け", bust: "バースト", push: "引き分け", fold: "降り" };
+
+function Stats({ stats }) {
+  if (!stats) return null;
+  const sign = (n) => (n > 0 ? `+${n}` : `${n}`);
+  return (
+    <div className="panel">
+      <h2>📊 あなたの戦績</h2>
+      <table className="stats-table">
+        <thead>
+          <tr><th>ゲーム</th><th>回数</th><th>勝ち</th><th>負け</th><th>勝率</th><th>合計</th></tr>
+        </thead>
+        <tbody>
+          {Object.entries(stats.stats).map(([type, s]) => (
+            <tr key={type}>
+              <td>{GAME_LABEL[type]}</td>
+              <td>{s.played}</td>
+              <td>{s.wins}</td>
+              <td>{s.losses}</td>
+              <td>{s.played ? `${Math.round((s.wins / s.played) * 100)}%` : "-"}</td>
+              <td className={s.total > 0 ? "plus" : s.total < 0 ? "minus" : ""}>{sign(s.total)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h2 style={{ fontSize: 15, marginTop: 14 }}>最近の勝負</h2>
+      {stats.recent.length === 0 && <p className="muted">まだ勝負していません。</p>}
+      {stats.recent.map((g, i) => (
+        <div key={i} className="recent-row">
+          <span className="muted">{g.playedAt.slice(5, 16)}</span>
+          <span>{GAME_LABEL[g.gameType]}</span>
+          <span>{RESULT_LABEL[g.result] || g.result}</span>
+          <b className={g.delta > 0 ? "plus" : g.delta < 0 ? "minus" : ""}>{sign(g.delta)}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Lobby({ players, setView, stats }) {
   return (
     <div>
       <div className="panel">
@@ -203,6 +274,7 @@ function Lobby({ players, setView }) {
           <button className="btn-blue" onClick={() => setView("poker")}>♠ ポーカー卓に行く</button>
         </div>
       </div>
+      <Stats stats={stats} />
       <div className="panel">
         <h2>接続中のプレイヤー（{players.length}人）</h2>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
