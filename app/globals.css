@@ -183,3 +183,15 @@ input:focus { border-color: var(--gold); }
   display: flex; align-items: center; justify-content: center; z-index: 50;
   font-size: 18px; color: var(--cream);
 }
+
+/* ---- ログイン・戦績（DB追加で増えた部分） ---- */
+.auth-error { color: #ff8a7a; font-size: 13px; margin: -6px 0 12px; }
+.auth-buttons { display: flex; gap: 10px; }
+.auth-buttons button { flex: 1; }
+.stats-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.stats-table th, .stats-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.stats-table th:first-child, .stats-table td:first-child { text-align: left; }
+.recent-row { display: grid; grid-template-columns: 110px 1fr 80px 70px; gap: 8px; padding: 4px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.recent-row b { text-align: right; }
+.plus { color: #6fdc8c; }
+.minus { color: #ff8a7a; }

@@ -1,0 +1,8 @@
+# 部品・ビルド結果（npm install / next build で作り直せる）
+node_modules/
+.next/
+
+
+# データベース（遊んだデータ。GitHubには上げない）
+casino.db
+casino.db-*
