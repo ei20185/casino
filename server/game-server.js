@@ -183,6 +183,7 @@ function startServer({ port = 3001, dbFile = path.join(__dirname, "..", "casino.
     acted: {},             // id -> 'stay' | 'fold'
     results: null,         // showdown結果
     resetTimer: null,
+    round: 0,              // 何ラウンド目か（余りのチップを配る順番をずらすのに使う）
   };
 
   const POKER_TALK = {
@@ -235,6 +236,7 @@ function startServer({ port = 3001, dbFile = path.join(__dirname, "..", "casino.
     table.community = [deck.pop(), deck.pop(), deck.pop(), deck.pop(), deck.pop()];
     table.phase = "playing";
     table.results = null;
+    table.round += 1;
     systemChat(pickTalk(POKER_TALK.start));
     broadcastPoker();
     broadcastRankings();
@@ -278,8 +280,12 @@ function startServer({ port = 3001, dbFile = path.join(__dirname, "..", "casino.
     }
 
     const share = Math.floor(table.pot / winners.length);
-    // 割り切れない余りは、勝者に1枚ずつ順番に配る（チップが消えないようにする）
-    let remainder = table.pot % winners.length;
+    // 割り切れない余りは、勝者に1枚ずつ配る（チップが消えないようにする）
+    // 毎回同じ人が得をしないよう、余りをもらい始める人をラウンドごとに1人ずつずらす
+    const remainder = table.pot % winners.length;
+    const start = table.round % winners.length;
+    const bonusIds = new Set();
+    for (let k = 0; k < remainder; k++) bonusIds.add(winners[(start + k) % winners.length]);
     const allFolded = contenders.length === 0;
     const records = [];
     const winnerInfo = [];
@@ -287,10 +293,7 @@ function startServer({ port = 3001, dbFile = path.join(__dirname, "..", "casino.
       const m = table.members[id];
       const won = winners.includes(id);
       let payout = 0;
-      if (won) {
-        payout = share + (remainder > 0 ? 1 : 0);
-        if (remainder > 0) remainder--;
-      }
+      if (won) payout = share + (bonusIds.has(id) ? 1 : 0);
       let result;
       if (allFolded) result = "push";
       else if (table.acted[id] === "fold") result = "fold";
