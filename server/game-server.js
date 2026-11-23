@@ -78,6 +78,10 @@ function startServer({ port = 3001, dbFile = path.join(__dirname, "..", "casino.
     if (bet > player.chips) return send(player.ws, { type: "error", message: "チップが足りません。" });
     if (player.bj && player.bj.status === "playing") return send(player.ws, { type: "error", message: "進行中のゲームがあります。" });
 
+    // 賭けた時点でチップを先にDBから引く（勝負中に同じチップをポーカーのアンティにも使えないようにする）
+    player.chips = store.addChips(db, player.userId, -bet);
+    sendChips(player);
+
     const deck = shuffle(makeDeck());
     const hand = [deck.pop(), deck.pop()];
     const dealer = [deck.pop(), deck.pop()];
@@ -116,13 +120,16 @@ function startServer({ port = 3001, dbFile = path.join(__dirname, "..", "casino.
     const g = player.bj;
     g.status = "done";
     g.result = result;
-    let delta = 0;
-    if (result === "win") delta = g.bet;
-    else if (result === "blackjack") delta = Math.floor(g.bet * 1.5);
-    else if (result === "lose" || result === "bust") delta = -g.bet;
-    // 残高の更新と戦績の記録を、まとめて1回でDBに書く
+    // 賭け金は bjStart で先に引いてあるので、残高には払い戻し分（payout）だけを足す
+    let payout = 0;
+    if (result === "win") payout = g.bet * 2; // 賭け金 + 勝ち分
+    else if (result === "blackjack") payout = g.bet + Math.floor(g.bet * 1.5);
+    else if (result === "push") payout = g.bet; // 引き分けは賭け金を返す
+    // lose / bust は 0
+    const delta = payout - g.bet; // 戦績と画面表示用の増減（従来と同じ意味）
+    // 払い戻しと戦績の記録を、まとめて1回でDBに書く（ポーカーのアンティと同じ方式）
     const balances = store.recordGames(db, [
-      { userId: player.userId, gameType: "blackjack", bet: g.bet, result, delta, chipDelta: delta },
+      { userId: player.userId, gameType: "blackjack", bet: g.bet, result, delta, chipDelta: payout },
     ]);
     player.chips = balances[player.userId];
     g.delta = delta;
@@ -271,20 +278,26 @@ function startServer({ port = 3001, dbFile = path.join(__dirname, "..", "casino.
     }
 
     const share = Math.floor(table.pot / winners.length);
+    // 割り切れない余りは、勝者に1枚ずつ順番に配る（チップが消えないようにする）
+    let remainder = table.pot % winners.length;
     const allFolded = contenders.length === 0;
     const records = [];
     const winnerInfo = [];
     for (const id of table.participants) {
       const m = table.members[id];
       const won = winners.includes(id);
-      const payout = won ? share : 0;
+      let payout = 0;
+      if (won) {
+        payout = share + (remainder > 0 ? 1 : 0);
+        if (remainder > 0) remainder--;
+      }
       let result;
       if (allFolded) result = "push";
       else if (table.acted[id] === "fold") result = "fold";
       else result = won ? "win" : "lose";
       // delta＝この勝負での増減（アンティを引いた後の差）、chipDelta＝今から残高に足す額
       records.push({ userId: m.userId, gameType: "poker", bet: POKER_ANTE, result, delta: payout - POKER_ANTE, chipDelta: payout });
-      if (won) winnerInfo.push({ id, name: m.name, amount: share });
+      if (won) winnerInfo.push({ id, name: m.name, amount: payout });
     }
     const balances = store.recordGames(db, records);
     for (const id of table.participants) {
